@@ -7,9 +7,12 @@ WORKDIR /app
 # Copy the entire project to the working directory
 COPY . .
 
-# Install the Python dependencies
+# Install Gradio and other dependencies
+RUN pip install --no-cache-dir gradio
 RUN pip install --no-cache-dir -e .
 
-# (Optional) You can add a command to run a specific script upon container start
-# For example, to run the example TTS script:
-# CMD ["python", "example_tts.py"]
+# Expose the port Gradio runs on
+EXPOSE 7860
+
+# Command to run the Gradio app
+CMD ["python", "app.py"]

@@ -86,8 +86,19 @@ with gr.Blocks() as demo:
         outputs=audio_output,
     )
 
+import os
+
 if __name__ == "__main__":
+    # Get username and password from environment variables
+    auth_username = os.environ.get("GRADIO_USERNAME")
+    auth_password = os.environ.get("GRADIO_PASSWORD")
+
+    # Set up authentication if both variables are set
+    auth_tuple = None
+    if auth_username and auth_password:
+        auth_tuple = (auth_username, auth_password)
+
     demo.queue(
         max_size=50,
         default_concurrency_limit=1,
-    ).launch(server_name="0.0.0.0")
+    ).launch(server_name="0.0.0.0", auth=auth_tuple)

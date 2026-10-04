@@ -141,6 +141,58 @@ ta.save("test-2.wav", wav, model.sr)
 ```
 See `example_tts.py`, `example_tts_turbo.py`, `example_tts_nano.py`, and `example_vc.py` for more examples.
 
+## Running on Dokploy
+
+`app.py` serves the Gradio UI at `/` and a small HTTP API from one FastAPI/uvicorn process on port 7860. The model loads once when the container starts (watch `GET /health` for `"model_loaded": true`); requests are synthesised one at a time.
+
+The Dockerfile builds a CPU-only image. Point the Dokploy app at it and set:
+
+| Env var | Default | Purpose |
+| --- | --- | --- |
+| `GRADIO_USERNAME`, `GRADIO_PASSWORD` | unset | Login for the web UI. Both must be set, or the UI is open. |
+| `CHATTERBOX_API_KEY` | unset | Bearer token for every `/v1` endpoint. **Set this**: without it the API is open to anyone. |
+| `CHATTERBOX_MODEL` | `turbo` | `turbo` (350M, one-step decoder, fastest good-quality English model on CPU), `nano` (110M, faster still, lower quality), `standard` (original 500M English model, supports exaggeration/CFG), `multilingual` (23 languages; send `language`). |
+| `CHATTERBOX_MULTILINGUAL_VERSION` | `v3` | `v3` or `v2`, only with `CHATTERBOX_MODEL=multilingual`. |
+| `CHATTERBOX_VOICES_DIR` | `/app/voices` | Where uploaded reference WAVs are stored. |
+| `CHATTERBOX_MAX_CHARS` | `3000` | Longer `input` is rejected with 413. |
+| `HF_TOKEN` | unset | Optional; only needed if Hugging Face rate-limits the weight download. |
+
+Volumes (Advanced → Volumes), so redeploys keep voices and do not re-download the weights:
+
+| Mount path | Holds |
+| --- | --- |
+| `/app/voices` | uploaded reference voices |
+| `/root/.cache/huggingface` | model weights (1–2 GB per model) |
+
+### API
+
+| Method and path | Auth | |
+| --- | --- | --- |
+| `GET /health` | none | `{"ok": true, "device": "cpu", "model": "turbo", "model_loaded": true}` |
+| `POST /v1/audio/speech` | bearer | OpenAI-style speech. JSON: `input` (required), `voice`, `response_format` (`wav` default, or `mp3`), `language` (multilingual only), `exaggeration`, `cfg_weight` (standard/multilingual only), `temperature`, `seed`. `model` and `speed` are accepted and ignored. |
+| `GET /v1/voices` | bearer | `{"voices": ["default", ...]}` |
+| `POST /v1/voices` | bearer | multipart `name` (letters, digits, `-`, `_`) and `file` (WAV, at least 5 s; about 10 s is best) |
+
+Long input is split into sentence chunks of at most 280 characters, read in order, and joined with 0.25 s between sentences and 0.6 s between paragraphs (blank lines). Output is 24 kHz mono, peak-normalised to -1.5 dBFS. An unknown `voice` is a 404, except OpenAI's stock names (`alloy`, `nova`, ...), which use the built-in voice.
+
+```bash
+# upload a voice once
+curl -X POST https://chatter.linkfa.de/v1/voices \
+  -H "Authorization: Bearer $CHATTERBOX_API_KEY" \
+  -F name=narrator -F file=@narrator.wav
+
+# synthesise
+curl -X POST https://chatter.linkfa.de/v1/audio/speech \
+  -H "Authorization: Bearer $CHATTERBOX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"input": "Hello from Chatterbox. [chuckle] This runs on a CPU.", "voice": "narrator"}' \
+  -o speech.wav
+```
+
+The OpenAI SDKs work too: set `base_url="https://chatter.linkfa.de/v1"`, `api_key=<CHATTERBOX_API_KEY>`, and pass `response_format="wav"` or `"mp3"`.
+
+Tests run against a stub model, with no torch or weights: `pip install gradio pytest`, then `CHATTERBOX_FAKE_MODEL=1 python -m pytest tests`.
+
 ## Supported Languages
 The general-purpose Chatterbox Multilingual model supports the following languages:
 
